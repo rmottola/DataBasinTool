@@ -41,6 +41,20 @@ Resources/Version \
 
 
 #
+# Header files
+#
+DataBasinTool_HEADER_FILES = \
+DBTLogger.h \
+ToolController.h
+
+#
+# Objective-C Class files
+#
+DataBasinTool_OBJC_FILES = \
+DBTLogger.m \
+ToolController.m
+
+#
 # Other sources
 #
 DataBasinTool_OBJC_FILES += \
