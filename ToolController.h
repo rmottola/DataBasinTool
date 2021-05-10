@@ -27,11 +27,17 @@
 
 #import <Foundation/Foundation.h>
 
+#define CSVWriteLineBreakHandling @"CSVWriteLineBreakHandling"
+
+@class DBSoap;
+@class DBSoapCSV;
 @class DBTLogger;
 
 @interface ToolController : NSObject
 {
   DBTLogger  *logger;
+  DBSoap    *db;
+  DBSoapCSV *dbCsv;
 }
 
 - (void)executeCommandWithContext:(NSDictionary*)context;

@@ -42,7 +42,7 @@ main(int argc, const char *argv[])
   NSString *inputFileName;
   NSString *outputFileName;
   NSString *operation;
-  NSString *token;
+  NSString *sessionID;
   int      upBatchSize;
   int      downBatchSize;
   
@@ -84,7 +84,25 @@ main(int argc, const char *argv[])
   
   contextDict = [[NSMutableDictionary alloc] init];
   [contextDict addEntriesFromDictionary: operationDict];
-  
+    
+  // check for command line parameters which override parameters set in the file
+  sessionID = [argumentsDict objectForKey:@"-si"];
+  if (sessionID)
+    {
+      [contextDict setObject:sessionID forKey:@"sessionID"];
+    }
+
+  inputFileName = [argumentsDict objectForKey:@"-if"];
+  if (inputFileName)
+    {
+      [contextDict setObject: inputFileName forKey:@"inputFile"];
+    }
+  outputFileName = [argumentsDict objectForKey:@"-of"];
+  if (outputFileName)
+    {
+      [contextDict setObject: outputFileName forKey:@"outputFile"];
+    }
+
   toolController = [[ToolController alloc] init];
   [toolController executeCommandWithContext:contextDict];
   [toolController release];

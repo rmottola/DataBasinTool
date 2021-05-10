@@ -25,6 +25,13 @@
 #import "ToolController.h"
 #import "DBTLogger.h"
 
+#import <DataBasinKit/DBSoap.h>
+#import <DataBasinKit/DBSoapCSV.h>
+#import <DataBasinKit/DBCSVWriter.h>
+#import <DataBasinKit/DBFileWriter.h>
+#import <DataBasinKit/DBHTMLWriter.h>
+#import <DataBasinKit/DBCSVReader.h>
+
 @implementation ToolController
 
 - (id)init
@@ -42,32 +49,143 @@
   [super dealloc];
 }
 
-- (void)executeLogin
+- (void)setupDB:(NSDictionary *)parameters
+{
+  NSURL *URL;
+  unsigned uint;
+  
+  db = [[DBSoap alloc] init];
+  [db setLogger: logger];
+
+  uint = [[parameters objectForKey:@"UpBatchSize"] intValue];
+  if (uint > 0)
+    [db setUpBatchSize:uint];
+
+  uint = [[parameters objectForKey:@"DownBatchSize"] intValue];
+  if (uint > 0)
+    [db setDownBatchSize:uint];
+
+  uint = [[parameters objectForKey:@"MaxSOQLQueryLength"] intValue];
+  if (uint > 0)
+    [db setMaxSOQLLength:uint];
+
+  [db setEnableFieldTypesDescribeForQuery:[[parameters objectForKey:@"DescribeFieldTypesInQueries"] boolValue]];
+
+  [db setSessionId:[parameters objectForKey:@"sessionID"]];
+  
+  URL = [[NSURL alloc] initWithString:[parameters objectForKey:@"URL"]];
+  [db setServerURL:URL];
+  [URL release];
+
+  dbCsv = [[DBSoapCSV alloc] init];
+  [dbCsv setDBSoap:db];
+}
+
+- (void)executeLogin:(NSDictionary *)parameters
 {
   NSLog(@"should login!");
 }
 
-- (void)executeQuery
+- (void)executeQuery:(NSDictionary *)parameters
 {
+  NSString         *statement;
+  NSString         *filePath;
+  NSFileHandle     *fileHandle;
+  NSFileManager    *fileManager;
+  DBFileWriter     *fileWriter;
+  NSString         *str;
+  NSUserDefaults   *defaults;
+  NSString         *fileType;
+  BOOL             writeFieldsOrdered;
+  BOOL             queryAll;
+  NSStringEncoding enc;
+
   NSLog(@"should query!");
+
+  writeFieldsOrdered = [[parameters objectForKey:@"writeFieldsOrdered"] boolValue];
+  queryAll = [[parameters objectForKey:@"writeFieldsOrdered"] boolValue];
+  statement = [parameters objectForKey:@"statement"];
+  filePath = [parameters objectForKey:@"outputFile"];
+  fileType = DBFileFormatCSV;
+  if ([[[filePath pathExtension] lowercaseString] isEqualToString:@"html"])
+    fileType = DBFileFormatHTML;
+  else if ([[[filePath pathExtension] lowercaseString] isEqualToString:@"xls"])
+    fileType = DBFileFormatXLS;
+  
+  fileManager = [NSFileManager defaultManager];
+  if ([fileManager createFileAtPath:filePath contents:nil attributes:nil] == NO)
+    {
+      [logger log:LogStandard :@"Could not create File."];
+      return;
+    }  
+
+  fileHandle = [NSFileHandle fileHandleForWritingAtPath:filePath];
+  if (fileHandle == nil)
+    {
+      [logger log:LogStandard :@"Cannot create File."];
+      return;
+    }
+
+  fileWriter = nil;
+  
+  if (fileType == DBFileFormatCSV)
+    {
+      fileWriter = [[DBCSVWriter alloc] initWithHandle:fileHandle];
+/*      [(DBCSVWriter *)fileWriter setLineBreakHandling:[defaults integerForKey:CSVWriteLineBreakHandling]];
+      str = [defaults stringForKey:@"CSVWriteQualifier"];
+      if (str)
+        [(DBCSVWriter *)fileWriter setQualifier:str];
+      str = [defaults stringForKey:@"CSVWriteSeparator"];
+      if (str)
+        [(DBCSVWriter *)fileWriter setSeparator:str]; */
+    }
+  else if (fileType == DBFileFormatHTML || fileType == DBFileFormatXLS)
+    {
+      fileWriter = [[DBHTMLWriter alloc] initWithHandle:fileHandle];
+      if (fileType == DBFileFormatXLS)
+        [fileWriter setFileFormat:DBFileFormatXLS];
+      else
+        [fileWriter setFileFormat:DBFileFormatHTML];
+    }
+  [fileWriter setWriteFieldsOrdered:writeFieldsOrdered];
+  [fileWriter setLogger:logger];
+  
+  enc = [defaults integerForKey: @"StringEncoding"];
+  if (enc)
+    [fileWriter setStringEncoding:enc];
+  NSLog(@"fileType is: %@, writer: %@", fileType, fileWriter);
+  
+  [self setupDB:parameters];
+  
+  NS_DURING
+    [dbCsv query :statement queryAll:queryAll toWriter:fileWriter progressMonitor:nil];
+  NS_HANDLER
+    if ([[localException name] hasPrefix:@"DB"])
+      {
+        NSLog(@"%@", [localException description]);
+      }
+  NS_ENDHANDLER
+
+  [fileWriter release];
+  [fileHandle closeFile];
 }
 
 
 - (void)executeCommandWithContext:(NSDictionary*)context
 {
-  NSString *command;
+  NSString *operation;
   
   NSLog(@"executing context: %@", context);
   
-  command = [context objectForKey:@"command"];
-  if (command == nil)
-    [logger log:LogStandard :@"No command given"];
-  else if ([command isEqualToString:@"login"])
-    [self executeLogin];
-  else if ([command isEqualToString:@"query"])
-    [self executeQuery];
+  operation = [context objectForKey:@"operation"];
+  if (operation == nil)
+    [logger log:LogStandard :@"No operation given"];
+  else if ([operation isEqualToString:@"login"])
+    [self executeLogin:context];
+  else if ([operation isEqualToString:@"query"])
+    [self executeQuery:context];
   else
-    [logger log: LogStandard :@"%@ not recognized as a command", command];
+    [logger log: LogStandard :@"%@ not recognized as an operation", operation];
 }
 
 @end
