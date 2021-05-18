@@ -39,6 +39,7 @@
   if ((self = [super init]))
     {
       logger = [[DBTLogger alloc] init];
+      [logger setLogLevel:LogDebug];
     }
   return self;
 }
@@ -94,7 +95,6 @@
   NSFileManager    *fileManager;
   DBFileWriter     *fileWriter;
   NSString         *str;
-  NSUserDefaults   *defaults;
   NSString         *fileType;
   BOOL             writeFieldsOrdered;
   BOOL             queryAll;
@@ -150,9 +150,10 @@
   [fileWriter setWriteFieldsOrdered:writeFieldsOrdered];
   [fileWriter setLogger:logger];
   
+  /*
   enc = [defaults integerForKey: @"StringEncoding"];
   if (enc)
-    [fileWriter setStringEncoding:enc];
+    [fileWriter setStringEncoding:enc]; */
   NSLog(@"fileType is: %@, writer: %@", fileType, fileWriter);
   
   [self setupDB:parameters];
@@ -170,6 +171,107 @@
   [fileHandle closeFile];
 }
 
+- (void)executeUpdate:(NSDictionary *)parameters
+{
+  NSString       *filePath;
+  NSString       *resFilePath;
+  DBCSVReader    *reader;
+  NSString       *whichObject;
+  NSMutableArray *results;
+  NSFileManager  *fileManager;
+  NSFileHandle   *resFH;
+  DBCSVWriter    *resWriter;
+  NSString       *str;
+
+
+  filePath = [parameters objectForKey:@"inputFile"];
+  resFilePath = [[filePath stringByDeletingLastPathComponent] stringByAppendingPathComponent: @"results.csv"];
+
+  [logger log:LogDebug: @"[ToolController executeUpdate] writing results to: %@", resFilePath];
+
+  /*
+  updateProgress = [[DBProgress alloc] init];
+  [updateProgress setLogger:logger];
+  [updateProgress setProgressIndicator: progIndUpdate];
+  [updateProgress setRemainingTimeField: fieldRTUpdate];
+  [updateProgress reset];
+*/
+
+  whichObject = [parameters objectForKey:@"object"];
+  [logger log:LogInformative :@"[ToolController executeUpdate] object: %@\n", whichObject];
+
+  results = nil;
+  reader = [[DBCSVReader alloc] initWithPath:filePath withLogger:logger];
+  /*
+  str = [defaults stringForKey:@"CSVReadQualifier"];
+  if (str)
+    [reader setQualifier:str];
+  str = [defaults stringForKey:@"CSVReadSeparator"];
+  if (str)
+    [reader setSeparator:str]; */
+  [reader parseHeaders];
+
+  [self setupDB:parameters];
+
+  [dbCsv setRunAssignmentRules:[[parameters objectForKey:@"RunAssignmentRules"] boolValue]];
+
+  NS_DURING
+    results = [dbCsv update:whichObject fromReader:reader progressMonitor:nil];
+    [results retain];
+  NS_HANDLER
+    if ([[localException name] hasPrefix:@"DB"])
+      {
+        NSLog(@"%@", [localException description]);
+      }
+    else
+      {
+        [localException raise];
+      }
+  NS_ENDHANDLER
+
+  fileManager = [NSFileManager defaultManager];
+  if ([fileManager createFileAtPath:resFilePath contents:nil attributes:nil] == NO)
+    {
+      [logger log:LogStandard :@"Cannot create File."];
+    }
+
+  resFH = [NSFileHandle fileHandleForWritingAtPath:resFilePath];
+  if (resFH == nil)
+    {
+      [logger log:LogStandard :@"Cannot open File for writing."];
+    }
+  else
+    {
+      if (results != nil && [results count] > 0)
+        {
+          resWriter = [[DBCSVWriter alloc] initWithHandle:resFH];
+          [resWriter setLogger:logger];
+//          [resWriter setStringEncoding: [defaults integerForKey: @"StringEncoding"]];
+//          str = [defaults stringForKey:@"CSVWriteQualifier"];
+          if (str)
+            [resWriter setQualifier:str];
+//          str = [defaults stringForKey:@"CSVWriteSeparator"];
+          if (str)
+            [resWriter setSeparator:str];
+
+          [resWriter setFieldNames:[results objectAtIndex: 0] andWriteThem:YES];
+          [resWriter writeDataSet: results];
+
+          [resWriter release];
+        }
+      else
+        {
+          [logger log:LogStandard :@"[ToolController executeUpdate] No Results"];
+        }
+    }
+
+  [reader release];
+  [whichObject release];
+//  [updateProgress release];
+//  updateProgress = nil;
+  [results release];
+}
+
 
 - (void)executeCommandWithContext:(NSDictionary*)context
 {
@@ -184,6 +286,8 @@
     [self executeLogin:context];
   else if ([operation isEqualToString:@"query"])
     [self executeQuery:context];
+  else if ([operation isEqualToString:@"update"])
+    [self executeUpdate:context];
   else
     [logger log: LogStandard :@"%@ not recognized as an operation", operation];
 }
