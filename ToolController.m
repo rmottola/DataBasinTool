@@ -163,7 +163,7 @@
   NS_HANDLER
     if ([[localException name] hasPrefix:@"DB"])
       {
-        NSLog(@"%@", [localException description]);
+	[logger log:LogStandard :@"%@", [localException description]];
       }
   NS_ENDHANDLER
 
