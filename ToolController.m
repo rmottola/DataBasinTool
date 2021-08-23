@@ -94,7 +94,6 @@
   NSFileHandle     *fileHandle;
   NSFileManager    *fileManager;
   DBFileWriter     *fileWriter;
-  NSString         *str;
   NSString         *fileType;
   BOOL             writeFieldsOrdered;
   BOOL             queryAll;
@@ -115,7 +114,7 @@
   fileManager = [NSFileManager defaultManager];
   if ([fileManager createFileAtPath:filePath contents:nil attributes:nil] == NO)
     {
-      [logger log:LogStandard :@"Could not create File."];
+      [logger log:LogStandard :@"Cannot create File."];
       return;
     }  
 
@@ -169,6 +168,120 @@
 
   [fileWriter release];
   [fileHandle closeFile];
+}
+
+- (void)executeQueryIdentify:(NSDictionary *)parameters
+{
+  NSString       *statement;
+  NSString       *filePathIn;
+  NSString       *filePathOut;
+  NSFileHandle   *fileHandleOut;
+  NSFileManager  *fileManager;
+  DBFileWriter   *fileWriter;
+  DBCSVReader    *csvReader;
+  NSString       *fileTypeOut;
+  BOOL           writeFieldsOrdered;
+  BOOL           queryAll;
+  int            batchSize;
+  NSString       *str;
+
+  writeFieldsOrdered = [[parameters objectForKey:@"writeFieldsOrdered"] boolValue];
+  queryAll = [[parameters objectForKey:@"writeFieldsOrdered"] boolValue];
+  statement = [parameters objectForKey:@"statement"];
+  filePathIn = [parameters objectForKey:@"inputFile"];
+  filePathOut = [parameters objectForKey:@"outputFile"];
+  fileTypeOut = DBFileFormatCSV;
+  if ([[[filePathOut pathExtension] lowercaseString] isEqualToString:@"html"])
+    fileTypeOut = DBFileFormatHTML;
+  else if ([[[filePathOut pathExtension] lowercaseString] isEqualToString:@"xls"])
+    fileTypeOut = DBFileFormatXLS;
+
+  batchSize = [[parameters objectForKey:@"batchSize"] intValue];
+  if (batchSize == 0)
+    batchSize = -1; // as default we try max
+
+  [logger log:LogDebug :@"[ToolController executeSelectIdentify] batch Size: %d\n", batchSize];
+
+  fileManager = [NSFileManager defaultManager];
+
+  NSLog(@"Input file path: %@", filePathIn);
+  csvReader = [[DBCSVReader alloc] initWithPath:filePathIn withLogger:logger];
+  /*
+  str = [defaults stringForKey:@"CSVReadQualifier"];
+  if (str)
+    [csvReader setQualifier:str];
+  str = [defaults stringForKey:@"CSVReadSeparator"];
+  if (str)
+  [csvReader setSeparator:str]; */
+  [csvReader parseHeaders];
+
+  NSLog(@"Output file path: %@", filePathOut);
+  if ([fileManager createFileAtPath:filePathOut contents:nil attributes:nil] == NO)
+    {
+      [logger log:LogStandard :@"Cannot create File."];
+      return;
+    }
+
+  fileHandleOut = [NSFileHandle fileHandleForWritingAtPath:filePathOut];
+  if (fileHandleOut == nil)
+    {
+      [logger log:LogStandard :@"Cannot create File."];
+      return;
+    }
+
+  fileWriter = nil;
+  if (fileTypeOut == DBFileFormatCSV)
+    {
+      fileWriter = [[DBCSVWriter alloc] initWithHandle:fileHandleOut];
+      /*
+      str = [defaults stringForKey:@"CSVWriteQualifier"];
+      if (str)
+	[(DBCSVWriter *)fileWriter setQualifier:str];
+      str = [defaults stringForKey:@"CSVWriteSeparator"];
+      if (str)
+	[(DBCSVWriter *)fileWriter setSeparator:str];
+	[(DBCSVWriter *)fileWriter setLineBreakHandling:[defaults integerForKey:CSVWriteLineBreakHandling]]; */
+    }
+  else if (fileTypeOut == DBFileFormatHTML || fileTypeOut == DBFileFormatXLS)
+    {
+      fileWriter = [[DBHTMLWriter alloc] initWithHandle:fileHandleOut];
+      if (fileTypeOut == DBFileFormatXLS)
+        [fileWriter setFileFormat:DBFileFormatXLS];
+      else
+        [fileWriter setFileFormat:DBFileFormatHTML];
+    }
+
+  [fileWriter setLogger:logger];
+  [fileWriter setWriteFieldsOrdered:writeFieldsOrdered];
+  //[fileWriter setStringEncoding: [defaults integerForKey: @"StringEncoding"]];
+
+  /*
+  selectIdentProgress = [[DBProgress alloc] init];
+  [selectIdentProgress setLogger:logger];
+  [selectIdentProgress setProgressIndicator: progIndSelectIdent];
+  [selectIdentProgress setRemainingTimeField: fieldRTSelectIdent];
+  [selectIdentProgress reset]; */
+
+  [self setupDB:parameters];
+
+  NS_DURING
+    [dbCsv queryIdentify :statement queryAll:queryAll fromReader:csvReader toWriter:fileWriter withBatchSize:batchSize progressMonitor:nil];
+  NS_HANDLER
+    if ([[localException name] hasPrefix:@"DB"])
+      {
+	[logger log:LogStandard :@"%@", [localException description]];
+      }
+  NS_ENDHANDLER
+
+  [csvReader release];
+  [fileWriter release];
+  [fileHandleOut closeFile];
+
+  /*
+  [selectIdentProgress release];
+  selectIdentProgress = nil;
+  [self performSelectorOnMainThread:@selector(resetSelectIdentUI:) withObject:self waitUntilDone:NO];
+  */
 }
 
 - (void)executeUpdate:(NSDictionary *)parameters
@@ -246,13 +359,13 @@
         {
           resWriter = [[DBCSVWriter alloc] initWithHandle:resFH];
           [resWriter setLogger:logger];
-//          [resWriter setStringEncoding: [defaults integerForKey: @"StringEncoding"]];
-//          str = [defaults stringForKey:@"CSVWriteQualifier"];
+	  /*         [resWriter setStringEncoding: [defaults integerForKey: @"StringEncoding"]];
+          str = [defaults stringForKey:@"CSVWriteQualifier"];
           if (str)
             [resWriter setQualifier:str];
-//          str = [defaults stringForKey:@"CSVWriteSeparator"];
+         str = [defaults stringForKey:@"CSVWriteSeparator"];
           if (str)
-            [resWriter setSeparator:str];
+	  [resWriter setSeparator:str]; */
 
           [resWriter setFieldNames:[results objectAtIndex: 0] andWriteThem:YES];
           [resWriter writeDataSet: results];
@@ -286,6 +399,8 @@
     [self executeLogin:context];
   else if ([operation isEqualToString:@"query"])
     [self executeQuery:context];
+  else if ([operation isEqualToString:@"query-identify"])
+    [self executeQueryIdentify:context];
   else if ([operation isEqualToString:@"update"])
     [self executeUpdate:context];
   else
